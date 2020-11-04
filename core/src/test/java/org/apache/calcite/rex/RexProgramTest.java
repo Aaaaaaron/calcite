@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 
+import static org.apache.calcite.rex.RexUtil.EXECUTOR;
 import static org.apache.calcite.test.Matchers.isRangeSet;
 
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -527,6 +528,34 @@ class RexProgramTest extends RexProgramTestBase {
           + " operand types: [VARCHAR, INTEGER]";
       assertThat(e.getMessage(), is(expected));
     }
+  }
+
+  @Test void testCnf3() {
+    final RelDataType intType = typeFactory.createSqlType(SqlTypeName.INTEGER);
+    final RelDataType rowType = typeFactory.builder()
+        .add("a", intType)
+        .add("b", intType)
+        .add("c", intType)
+        .add("d", intType)
+        .build();
+    final RexDynamicParam range = rexBuilder.makeDynamicParam(rowType, 0);
+    final RexNode aRef = rexBuilder.makeFieldAccess(range, 0);
+    final RexNode bRef = rexBuilder.makeFieldAccess(range, 1);
+    final RexNode cRef = rexBuilder.makeFieldAccess(range, 2);
+    final RexNode dRef = rexBuilder.makeFieldAccess(range, 3);
+    RexNode or = or(
+        and(eq(aRef, bRef), eq(cRef, literal(7))),
+        and(eq(aRef, bRef), eq(dRef, literal(8)))
+    );
+
+    RexNode rexNode = RexUtil.toCnf(rexBuilder, or);
+    RexNode simplify =  new RexSimplify(rexBuilder, RelOptPredicateList.EMPTY, EXECUTOR)
+        .simplify(rexNode);
+    checkDigest(rexNode,
+        "AND(=(?0.a, ?0.b), OR(=(?0.a, ?0.b), =(?0.d, 8)), OR(=(?0.c, 7), =(?0.a, ?0.b)), OR(=(?0.c, 7), =(?0.d, 8)))");
+    checkDigest(simplify,
+        "AND(=(?0.a, ?0.b), OR(=(?0.a, ?0.b), =(?0.d, 8)), OR(=(?0.c, 7), =(?0.a, ?0.b)), OR(=(?0.c, 7), =(?0.d, 8)))");
+
   }
 
   /** Unit test for {@link org.apache.calcite.rex.RexUtil#toCnf}. */
