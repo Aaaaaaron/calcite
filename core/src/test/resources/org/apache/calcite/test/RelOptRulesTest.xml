@@ -3586,6 +3586,35 @@ LogicalProject(EMPNO=[$0])
 ]]>
         </Resource>
     </TestCase>
+    <TestCase name="testFilterProjectTransposeWithUnDeterministic">
+        <Resource name="sql">
+            <![CDATA[select *
+ from
+ (
+     select empno, rand(1) as ran
+     from emp
+ ) t
+ where ran > 0.6 and (empno + 1) > 10]]>
+        </Resource>
+        <Resource name="planBefore">
+            <![CDATA[
+LogicalProject(EMPNO=[$0], RAN=[$1])
+  LogicalFilter(condition=[AND(>($1, 0.6:DECIMAL(2, 1)), >(+($0, 1), 10))])
+    LogicalProject(EMPNO=[$0], RAN=[RAND(1)])
+      LogicalTableScan(table=[[CATALOG, SALES, EMP]])
+]]>
+        </Resource>
+        <Resource name="planAfter">
+            <![CDATA[
+LogicalProject(EMPNO=[$0], RAN=[$1])
+  LogicalFilter(condition=[>($1, 0.6:DECIMAL(2, 1))])
+    LogicalProject(EMPNO=[$0], RAN=[RAND(1)])
+      LogicalFilter(condition=[>(+($0, 1), 10)])
+        LogicalProject(EMPNO=[$0])
+          LogicalTableScan(table=[[CATALOG, SALES, EMP]])
+]]>
+        </Resource>
+    </TestCase>
     <TestCase name="testFilterRemoveIsNotDistinctFromRule">
         <Resource name="planBefore">
             <![CDATA[

@@ -1789,6 +1789,23 @@ class RelOptRulesTest extends RelOptTestBase {
         .check();
   }
 
+  @Test void testFilterProjectTransposeWithUnDeterministic() {
+    final String sql =
+        "select *\n"
+            + " from\n"
+            + " (\n"
+            + "     select empno, rand(1) as ran\n"
+            + "     from emp\n"
+            + " ) t\n"
+            + " where ran > 0.6 and (empno + 1) > 10";
+    sql(sql)
+        .withDecorrelation(true)
+        .expand(true)
+        .withRule(CoreRules.FILTER_PROJECT_TRANSPOSE,
+            CoreRules.PROJECT_FILTER_TRANSPOSE)
+        .check();
+  }
+
   private static final String NOT_STRONG_EXPR =
       "case when e.sal < 11 then 11 else -1 * e.sal end";
 

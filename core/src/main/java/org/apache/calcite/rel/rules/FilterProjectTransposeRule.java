@@ -18,7 +18,6 @@ package org.apache.calcite.rel.rules;
 
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
-import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelRule;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollationTraitDef;
@@ -27,14 +26,21 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.RelFactories;
+import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableBeans;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.function.Predicate;
+
+import static org.apache.calcite.plan.RelOptUtil.conjunctions;
+import static org.apache.calcite.plan.RelOptUtil.pushPastProject;
+import static org.apache.calcite.rex.RexUtil.composeConjunction;
 
 /**
  * Planner rule that pushes
@@ -160,10 +166,26 @@ public class FilterProjectTransposeRule
       // it can be pushed down. For now we don't support this.
       return;
     }
-    // convert the filter to one that references the child of the project
-    RexNode newCondition =
-        RelOptUtil.pushPastProject(filter.getCondition(), project);
+    List<RexNode> aboveConds = new ArrayList<>();
+    List<RexNode> belowConds = new ArrayList<>();
+    List<RexNode> conjunctions = conjunctions(filter.getCondition());
 
+    for (RexNode ori : conjunctions) {
+      // convert the filter to one that references the child of the project
+      RexNode pushPastProject = pushPastProject(ori, project);
+      if (RexUtil.isDeterministic(pushPastProject)) {
+        belowConds.add(pushPastProject);
+      } else {
+        aboveConds.add(ori);
+      }
+    }
+    RexBuilder builder = project.getCluster().getRexBuilder();
+
+    // conditions are all non-deterministic, cannot pushdown
+    if (belowConds.isEmpty()) {
+      return;
+    }
+    RexNode newCondition = composeConjunction(builder, belowConds);
     final RelBuilder relBuilder = call.builder();
     RelNode newFilterRel;
     if (config.isCopyFilter()) {
@@ -190,7 +212,13 @@ public class FilterProjectTransposeRule
                 .project(project.getProjects(), project.getRowType().getFieldNames())
                 .build();
 
-    call.transformTo(newProject);
+    if (aboveConds.isEmpty()) {
+      call.transformTo(newProject);
+    } else {
+      RelNode filterAboveProject =
+          relBuilder.push(newProject).filter(aboveConds).build();
+      call.transformTo(filterAboveProject);
+    }
   }
 
   /** Rule configuration.
